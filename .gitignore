@@ -1,0 +1,11 @@
+pycache/
+*.pyc
+.env
+venv/
+*.mov
+*.mp4
+*.jpg
+*.png
+*.env
+.DS_Store
+Thumbs.db
