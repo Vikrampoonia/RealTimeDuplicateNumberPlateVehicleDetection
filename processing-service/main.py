@@ -1,169 +1,173 @@
 import os
 import cv2
 import re
-#import json
-import base64
+import json
+import uuid
 import numpy as np
-import requests
 from ultralytics import YOLO
 from paddleocr import PaddleOCR
 from dotenv import load_dotenv
+from kafka import KafkaProducer
+import boto3
+from botocore.client import Config
+import io
 
-
+# --- SETUP ---
 # Load environment variables from .env file
 load_dotenv()
 
-# --- Configuration ---
-# All constants are grouped at the top for easy modification.
-SERVER_URL = os.getenv("SERVER_URL")
-VEHICLE_MODEL_PATH = './weights/yolov8n.pt'
-PLATE_MODEL_PATH = './weights/best.pt'
-INPUT_VIDEO_PATH = './testVideo3.mov'
+# Kafka Producer Setup
+try:
+    producer = KafkaProducer(
+        bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS"),
+        value_serializer=lambda x: json.dumps(x).encode('utf-8')
+    )
+    print("✅ Kafka Producer connected successfully.")
+except Exception as e:
+    print(f"❌ Kafka producer connection failed: {e}")
+    producer = None
 
-
-
-
+# MinIO (S3) Client Setup
+try:
+    s3_client = boto3.client(
+        's3',
+        endpoint_url=f'http://{os.getenv("MINIO_ENDPOINT")}',
+        aws_access_key_id=os.getenv("MINIO_ACCESS_KEY"),
+        aws_secret_access_key=os.getenv("MINIO_SECRET_KEY"),
+        config=Config(signature_version='s3v4')
+    )
+    print("✅ MinIO (S3) client connected successfully.")
+except Exception as e:
+    print(f"❌ MinIO (S3) client connection failed: {e}")
+    s3_client = None
 
 class VehicleProcessor:
-    """
-    A class to handle vehicle and license plate detection, tracking, and OCR.
-    Encapsulates all model loading and processing logic.
-    """
-    def __init__(self, use_gpu=False):
-        """
-        Initializes the models and OCR engine once.
-        """
-        print("Loading models...")
-        self.vehicle_model = YOLO(VEHICLE_MODEL_PATH)
-        self.plate_model = YOLO(PLATE_MODEL_PATH)
-        # It's crucial to enable GPU if available for a massive performance boost.
-        self.ocr = PaddleOCR(use_angle_cls=True, use_gpu=use_gpu)
-        self.detected_track_ids = set()
-        print("Models loaded successfully.")
+    def __init__(self):
+        print("Loading ML models...")
+        self.vehicle_model = YOLO('./weights/yolov8n.pt')
+        self.plate_model = YOLO('./weights/best.pt')
+        self.ocr = PaddleOCR(use_angle_cls=True, use_gpu=False)
+        print("✅ ML models loaded.")
 
-    def _encode_image(self, image):
-        """Encodes a CV2 image to a base64 string."""
-        _, buffer = cv2.imencode('.jpg', image)
-        return base64.b64encode(buffer).decode('utf-8')
-
-    def _perform_ocr(self, frame, box):
-        """Crops the frame and performs OCR on the given box."""
-        x1, y1, x2, y2 = map(int, box)
+    def paddle_ocr(self, frame, x1, y1, x2, y2):
+        # (OCR logic remains the same as your original code)
         cropped_frame = frame[y1:y2, x1:x2]
         result = self.ocr.ocr(cropped_frame, det=False, rec=True, cls=False)
-        
         text = ""
-        if result and result[0]:
-            # Get the first result's text and confidence
-            line = result[0][0]
-            raw_text, confidence = line
-            if confidence > 0.6: # Confidence threshold
-                # Clean the text
-                pattern = re.compile('[\W]')
-                text = pattern.sub('', raw_text).replace("O", "0")
+        for r in result:
+            scores = r[0][1]
+            scores = 0 if np.isnan(scores) else int(scores * 100)
+            if scores > 60:
+                text = r[0][0]
+        pattern = re.compile('[\W]')
+        text = pattern.sub('', text).replace("???", "").replace("O", "0")
+        regex = re.compile(r'^[A-Z]{2}[0-9]{2}[A-Z]{1,3}[0-9]{4}$', re.IGNORECASE)
+        text = text if regex.match(text) else ''
+        return str(text)
+
+    # --- NEW METHOD: UPLOAD IMAGE TO S3 ---
+    def upload_image_to_s3(self, image_np, bucket_name):
+        """Encodes a NumPy image to JPEG and uploads it to an S3 bucket."""
+        if s3_client is None: return None
+        
+        # Generate a unique object name
+        object_name = f"{uuid.uuid4()}.jpg"
+
+        try:
+            # Encode image to JPEG format in memory
+            _, buffer = cv2.imencode('.jpg', image_np)
+            image_bytes = io.BytesIO(buffer)
+
+            # Upload the bytes to S3
+            s3_client.upload_fileobj(
+                image_bytes,
+                bucket_name,
+                object_name,
+                ExtraArgs={'ContentType': 'image/jpeg'}
+            )
+            
+            # Construct the public URL for the object
+            image_url = f"http://{os.getenv('MINIO_ENDPOINT')}/{bucket_name}/{object_name}"
+            print(f"🖼️  Image uploaded to S3: {image_url}")
+            return image_url
+        except Exception as e:
+            print(f"❌ S3 upload failed: {e}")
+            return None
+
+    # --- NEW METHOD: PUBLISH MESSAGE TO KAFKA ---
+    def publish_to_kafka(self, topic, data):
+        """Sends a message to a Kafka topic."""
+        if producer is None: return
+        try:
+            producer.send(topic, value=data)
+            producer.flush() # Ensure message is sent
+            print(f"➡️  Event published to Kafka topic '{topic}'")
+        except Exception as e:
+            print(f"❌ Kafka publish failed: {e}")
+
+    def process_video(self, video_path):
+        cap = cv2.VideoCapture(video_path)
+        detected_vehicles = {}
+
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            vehicle_results = self.vehicle_model.track(frame)
+            plate_results = self.plate_model.predict(frame, conf=0.3)
+
+            if vehicle_results[0].boxes.data is not None:
+                boxes = vehicle_results[0].boxes.xyxy.cpu()
+                track_ids = vehicle_results[0].boxes.id
+                class_indices = vehicle_results[0].boxes.cls.int().cpu().tolist()
                 
-                # Validate against Indian license plate format
-                regex = re.compile(r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}$', re.IGNORECASE)
-                if not regex.match(text):
-                    text = "" # Discard if it doesn't match the format
-        return text
+                track_ids = track_ids.int().cpu().tolist() if track_ids is not None else [-1] * len(boxes)
 
-    def process_frame(self, frame):
-        """
-        Processes a single frame to detect and track vehicles and plates.
-        Returns a list of data for newly detected vehicles.
-        """
-        newly_detected_vehicles = []
-        
-        # Run vehicle tracking and plate detection
-        vehicle_results = self.vehicle_model.track(frame, persist=True, verbose=False)
-        plate_results = self.plate_model.predict(frame, conf=0.4, verbose=False)
-
-        # Ensure we have tracking results
-        if vehicle_results[0].boxes.id is None:
-            return []
-            
-        boxes = vehicle_results[0].boxes.xyxy.cpu()
-        track_ids = vehicle_results[0].boxes.id.int().cpu().tolist()
-        class_indices = vehicle_results[0].boxes.cls.int().cpu().tolist()
-
-        # Iterate over each detected vehicle
-        for box, track_id, class_idx in zip(boxes, track_ids, class_indices):
-            vx1, vy1, vx2, vy2 = map(int, box)
-            
-            # Check if this vehicle has already been processed
-            if track_id in self.detected_track_ids:
-                continue
-
-            vehicle_class = self.vehicle_model.names[class_idx]
-
-            # Find a license plate within this vehicle's bounding box
-            for plate_result in plate_results:
-                for plate_box in plate_result.boxes:
-                    px1, py1, px2, py2 = map(int, plate_box.xyxy[0])
+                for box, track_id, class_idx in zip(boxes, track_ids, class_indices):
+                    vx1, vy1, vx2, vy2 = map(int, box)
+                    vehicle_class = self.vehicle_model.names[class_idx]
                     
-                    # Check for containment: plate center must be inside vehicle box
-                    plate_center_x = (px1 + px2) / 2
-                    plate_center_y = (py1 + py2) / 2
-                    
-                    if vx1 < plate_center_x < vx2 and vy1 < plate_center_y < vy2:
-                        label = self._perform_ocr(frame, (px1, py1, px2, py2))
-                        
-                        if label and len(label) > 4:
-                            cropped_vehicle = frame[vy1:vy2, vx1:vx2]
-                            
-                            # Add to our list of newly detected vehicles for this frame
-                            vehicle_data = {
-                                "track_id": track_id,
-                                "license_plate": label,
-                                "vehicle_class": vehicle_class,
-                                "vehicle_image_base64": self._encode_image(cropped_vehicle)
-                            }
-                            newly_detected_vehicles.append(vehicle_data)
-                            self.detected_track_ids.add(track_id)
-                            break # Assume one plate per vehicle
-                if track_id in self.detected_track_ids:
-                    break # Move to the next vehicle once plate is found
+                    for plate_result in plate_results:
+                        for plate_box in plate_result.boxes:
+                            x1, y1, x2, y2 = map(int, plate_box.xyxy[0])
+                            if vx1 <= x1 <= vx2 and vy1 <= y1 <= vy2:
+                                label = self.paddle_ocr(frame, x1, y1, x2, y2)
+                                
+                                if label and len(label) >= 4 and track_id not in detected_vehicles:
+                                    detected_vehicles[track_id] = label
+                                    
+                                    # --- REFACTORED LOGIC ---
+                                    # 1. Crop the vehicle image
+                                    cropped_vehicle = frame[vy1:vy2, vx1:vx2]
 
-        return newly_detected_vehicles
+                                    # 2. Upload the image to S3 (MinIO)
+                                    image_url = self.upload_image_to_s3(
+                                        cropped_vehicle, 
+                                        os.getenv("MINIO_BUCKET_NAME")
+                                    )
 
-def main():
-    """
-    Main function to run the video processing loop.
-    """
-    processor = VehicleProcessor(use_gpu=False) # CHANGE to True if you have a GPU
-    cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
-    
-    if not cap.isOpened():
-        print(f"Error: Could not open video file {INPUT_VIDEO_PATH}")
-        return
+                                    if image_url:
+                                        # 3. Create a lightweight JSON payload
+                                        vehicle_data = {
+                                            "track_id": track_id,
+                                            "license_plate": label,
+                                            "vehicle_class": vehicle_class,
+                                            "imageUrl": image_url # No more base64!
+                                        }
+                                        # 4. Publish the event to Kafka
+                                        self.publish_to_kafka(
+                                            os.getenv("KAFKA_RAW_DETECTIONS_TOPIC"),
+                                            vehicle_data
+                                        )
+        cap.release()
+        cv2.destroyAllWindows()
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        # Process the current frame
-        detected_data = processor.process_frame(frame)
-        
-        # If new vehicles were detected, send their data to the server
-        if detected_data:
-            try:
-                # NOTE: This is still a bottleneck. We will optimize this next.
-                requests.post(SERVER_URL, json=detected_data, timeout=2)
-                print(f"Sent data for {len(detected_data)} new vehicles.")
-            except requests.exceptions.RequestException as e:
-                print(f"Error sending data to server: {e}")
-
-        # Displaying the output frame
-        cv2.imshow("Processing", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-            
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-# Main function entry point
-if __name__ == "__main__":
-    main()
+# --- MAIN EXECUTION ---
+if __name__ == '__main__':
+    if producer is None or s3_client is None:
+        print("Exiting due to connection failure.")
+    else:
+        processor = VehicleProcessor()
+        # Replace with your test video file path
+        processor.process_video('./testVideo3.mov')

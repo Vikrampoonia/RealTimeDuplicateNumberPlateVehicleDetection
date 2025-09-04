@@ -1,7 +1,6 @@
-# Docker Compose Version
-version: '3.8'
+# The "version" tag is no longer needed in modern Docker Compose
+# version: '3.8' 
 
-# Define all the services (containers) we need
 services:
   # Zookeeper: A mandatory dependency for Kafka to manage its state
   zookeeper:
@@ -28,7 +27,6 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
   # Kafka UI: A web interface to visually manage topics and messages
-  # Very useful for debugging our event-driven flow
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui

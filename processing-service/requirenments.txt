@@ -1,28 +1,15 @@
-This file lists the Python dependencies for the vehicle processing service.
-It was generated to ensure all core libraries and their critical dependencies are version-locked.
 
-To install: pip install -r requirements.txt
+opencv-python==4.8.0.76
+ultralytics==8.1.27
+paddleocr==2.7.1
+paddlepaddle==2.5.2
+numpy==1.24.3
 
---- Your Primary Libraries ---
-Versions as specified from your local environment.
+
+
+kafka-python==2.0.2
+
+
+boto3==1.28.57
 
 python-dotenv==1.0.0
-requests==2.32.3
-opencv-python==4.11.0.86
-paddleocr==2.10.0
-ultralytics==8.3.97
-
---- CRITICAL Machine Learning Frameworks (The Hidden Dependencies) ---
-These are the engines that power paddleocr and ultralytics.
-
-Their versions are critical for stability.
-paddlepaddle==2.6.1
-torch==2.3.0
-
-Note: If you have a GPU, you would install a CUDA-enabled version of torch and paddlepaddle.
---- Core Scientific & Image Libraries ---
-These are other essential dependencies required by the ML frameworks.
-numpy==1.26.4
-Pillow==10.3.0  # For image manipulation
-PyYAML==6.0.1   # For configuration files used by YOLO
-tqdm==4.66.4    # For progress bars (often used by model downloaders)
