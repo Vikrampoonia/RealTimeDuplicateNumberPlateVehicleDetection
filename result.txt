@@ -1,0 +1,40 @@
+
+
+PERFORMANCE TEST RESULTS (BASELINE - WITHOUT CACHING)
+
+
+Test Date: 2025-09-05
+
+This report summarizes the performance of the vehicle detection system's
+primary API endpoint (GET /api/vehicles) before the implementation of
+a Redis caching layer.
+
+The test was conducted using K6, simulating a load ramping up to
+100 concurrent virtual users over 2 minutes.
+
+Metric                 Result                    Description
+Reliability      100% (0.00% Error Rate)        The percentage of failed requests.
+
+-----------------      ------------------------     --------------------  -------------------
+
+Throughput          ~48 requests/sec            The average number of successful  requests per second  handled by the API.
+
+-----------------     ------------------------    --------------------   ----------------------
+
+p(95) Latency          1.1 seconds                95% of requests   received a response  in 1.1s or less   under peak load.
+
+-----------------   ------------------------   -------------------- -------------------------
+
+Avg. Latency            571.84 ms                 The average time  for a request to
+
+
+
+------------------------------------------------------------------------------------------------------------
+
+Analysis:
+The system demonstrated exceptional reliability with a 100% success rate under significant stress. The throughput is very respectable
+for a local development environment. The p(95) latency indicates that the primary bottleneck under heavy load is the repeated calls
+to the external MongoDB database, which is the expected behavior for an uncached system.
+
+This data serves as a strong baseline to measure the impact of our
+upcoming Redis caching implementation.

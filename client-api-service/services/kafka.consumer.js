@@ -7,7 +7,7 @@ dotenv.config();
 
 const kafka = new Kafka({
   clientId: process.env.KAFKA_CLIENT_ID,
-  brokers: [process.env.KAFKA_BOOTSTRAP_SERVERS],
+  brokers: [process.env.KAFKA_BROKERS],
 });
 
 const consumer = kafka.consumer({ groupId: process.env.KAFKA_GROUP_ID });
