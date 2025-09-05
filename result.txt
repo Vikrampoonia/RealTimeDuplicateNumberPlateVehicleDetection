@@ -1,3 +1,40 @@
+Performance Test Results: API with Redis Caching
+Date: 2025-09-05  Test Configuration  Tool: K6
+
+Scenario: Ramping load from 1 to 100 concurrent virtual users over 2 minutes.
+
+Target: GET /api/vehicles endpoint.
+
+Key Performance Indicators
+Metric                       Result                        Description
+-----------------      ------------------------     --------------------  -------------------
+
+Throughput                ~65 req/s                 The average number of requests per second handled.
+
+-----------------      ------------------------     --------------------  -------------------  -------------
+
+p(95) Latency              499 ms                   95% of requests completed faster than this time under load.
+
+-----------------      ------------------------     --------------------  -------------------  -----------------
+
+Avg. Latency               141 ms                   The average time for a request to complete.
+
+-----------------      ------------------------     --------------------  ------------------- -------
+
+Reliability                 100%                     0.00% error rate across 7,891 total requests.
+
+--------------------------------------------------------------------------------------------------
+
+Conclusion
+The implementation of a Redis caching layer resulted in a dramatic improvement in API performance. 
+Average latency was reduced by 75%, and p(95) latency was reduced by 55%, allowing the system to handle 38% more requests per second while maintaining perfect reliability.
+
+
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
 
 
 PERFORMANCE TEST RESULTS (BASELINE - WITHOUT CACHING)
@@ -13,6 +50,8 @@ The test was conducted using K6, simulating a load ramping up to
 100 concurrent virtual users over 2 minutes.
 
 Metric                 Result                    Description
+-----------------      ------------------------     --------------------  -------------------
+
 Reliability      100% (0.00% Error Rate)        The percentage of failed requests.
 
 -----------------      ------------------------     --------------------  -------------------
@@ -35,6 +74,3 @@ Analysis:
 The system demonstrated exceptional reliability with a 100% success rate under significant stress. The throughput is very respectable
 for a local development environment. The p(95) latency indicates that the primary bottleneck under heavy load is the repeated calls
 to the external MongoDB database, which is the expected behavior for an uncached system.
-
-This data serves as a strong baseline to measure the impact of our
-upcoming Redis caching implementation.

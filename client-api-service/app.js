@@ -4,6 +4,7 @@ import http from 'http';
 import dotenv from 'dotenv';
 
 import connectDB from './config/db.js';
+import { connectRedis } from './config/redis.js';
 import { setupSocket } from './services/socket.service.js';
 import runConsumer from './services/kafka.consumer.js';
 import vehicleRoutes from './routes/vehicle.routes.js';
@@ -20,10 +21,13 @@ const server = http.createServer(app);
 // 1. Connect to MongoDB
 connectDB();
 
-// 2. Setup Socket.IO Server
+// 2. Connect to Redis
+connectRedis();
+
+// 3. Setup Socket.IO Server
 setupSocket(server);
 
-// 3. Start the Kafka Consumer to listen for alerts
+// 4. Start the Kafka Consumer to listen for alerts
 runConsumer();
 
 
