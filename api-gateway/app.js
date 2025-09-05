@@ -1,23 +1,26 @@
-import express from 'express'
-import cors from 'cors'
-import flaskRoute from './routes/flaskRoute.js'
-import clientRoute from './routes/clientRoute.js'
+import express from 'express';
+import cors from 'cors';
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import dotenv from 'dotenv';
 
+dotenv.config();
 
-const app=express();
+const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+
+// --- PROXY ROUTING ---
+// Any request to the gateway that starts with '/api'
+// will be forwarded to our internal client-api-service.
+app.use('/api', createProxyMiddleware({
+    target: process.env.CLIENT_API_SERVICE_URL,
+    changeOrigin: true, // Recommended for virtual hosted sites
+    // We don't need to rewrite the path, as both start with /api
+}));
 
 
-app.get("/",async(req,res)=>{
-    res.send("Server is running successfully");
-})
-
-app.use('/camera',flaskRoute);
-app.use('/client',clientRoute);
-
-
-const PORT=4000;
-app.listen(PORT,()=>{
-    console.log(`server listen on http://localhost:${PORT}`);
-})
+// --- START SERVER ---
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+    console.log(`🚀 API Gateway is running on http://localhost:${PORT}`);
+    console.log(`➡️  Forwarding /api requests to ${process.env.CLIENT_API_SERVICE_URL}`);
+});

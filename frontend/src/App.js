@@ -26,7 +26,7 @@ const SuspiciousVehicles = () => {
         setLoading(true);
         try {
             // Connect to our new, paginated API endpoint via the API Gateway
-            const response = await axios.get(`${process.env.REACT_APP_SOCKET_SERVICE_URL}/api/vehicles?page=${pageNum}&limit=10`);
+            const response = await axios.get(`${API_GATEWAY_URL}/api/vehicles?page=${pageNum}&limit=10`);
             const { data, pagination } = response.data;
             
             console.log("Response.data:", response.data);
