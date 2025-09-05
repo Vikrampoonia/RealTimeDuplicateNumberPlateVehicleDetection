@@ -1,34 +1,39 @@
-import express from 'express'
-import cors from 'cors'
+import express from 'express';
+import cors from 'cors';
 import http from 'http';
-import { setupSocket } from './controller/socketController.js';
-import './controller/cameraController.js'
-import clientRoute from './route/clientRoute.js';
+import dotenv from 'dotenv';
 
-//mongodb+srv://pooniavikram348:<vehicleDetectionList>@cluster0.eoe4fjs.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+import connectDB from './config/db.js';
+import { setupSocket } from './services/socket.service.js';
+import runConsumer from './services/kafka.consumer.js';
+import vehicleRoutes from './routes/vehicle.routes.js';
 
-const app=express();
+// --- SETUP ---
+dotenv.config();
+const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json());
 
 const server = http.createServer(app);
 
+// --- INITIALIZATION ---
+// 1. Connect to MongoDB
+connectDB();
+
+// 2. Setup Socket.IO Server
 setupSocket(server);
 
+// 3. Start the Kafka Consumer to listen for alerts
+runConsumer();
 
 
-//app.use("/camera",cameraRoute);
-app.use("/client",clientRoute);
+// --- API ROUTES ---
+// Mount the API routes
+app.use('/api', vehicleRoutes);
 
 
-
-
-
-const PORT=4002;
-
-app.listen(PORT,()=>{
-    console.log(`server listen at http://localhost:${PORT}`);
-})
-
-
-
+// --- START SERVER ---
+const PORT = process.env.PORT || 4002;
+server.listen(PORT, () => {
+    console.log(`🚀 Client API Service is running on http://localhost:${PORT}`);
+});
