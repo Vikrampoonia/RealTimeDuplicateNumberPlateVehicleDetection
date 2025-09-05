@@ -52,11 +52,11 @@ The test was conducted using K6, simulating a load ramping up to
 Metric                 Result                    Description
 -----------------      ------------------------     --------------------  -------------------
 
-Reliability      100% (0.00% Error Rate)        The percentage of failed requests.
+Reliability             100% (0.00% Error Rate)        The percentage of failed requests.
 
 -----------------      ------------------------     --------------------  -------------------
 
-Throughput          ~48 requests/sec            The average number of successful  requests per second  handled by the API.
+Throughput               ~48 requests/sec            The average number of successful  requests per second  handled by the API.
 
 -----------------     ------------------------    --------------------   ----------------------
 
@@ -64,7 +64,7 @@ p(95) Latency          1.1 seconds                95% of requests   received a r
 
 -----------------   ------------------------   -------------------- -------------------------
 
-Avg. Latency            571.84 ms                 The average time  for a request to
+Avg. Latency            571.84 ms                 The average time  for a request to compelete.
 
 
 
