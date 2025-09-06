@@ -9,15 +9,15 @@ Key Performance Indicators
 Metric                       Result                        Description
 -----------------      ------------------------     --------------------  -------------------
 
-Throughput                ~65 req/s                 The average number of requests per second handled.
+Throughput                ~72 req/s                 The average number of requests per second handled.
 
 -----------------      ------------------------     --------------------  -------------------  -------------
 
-p(95) Latency              499 ms                   95% of requests completed faster than this time under load.
+p(95) Latency              107 ms                   95% of requests completed faster than this time under load.
 
 -----------------      ------------------------     --------------------  -------------------  -----------------
 
-Avg. Latency               141 ms                   The average time for a request to complete.
+Avg. Latency               32 ms                   The average time for a request to complete.
 
 -----------------      ------------------------     --------------------  ------------------- -------
 
@@ -27,7 +27,7 @@ Reliability                 100%                     0.00% error rate across 7,8
 
 Conclusion
 The implementation of a Redis caching layer resulted in a dramatic improvement in API performance. 
-Average latency was reduced by 75%, and p(95) latency was reduced by 55%, allowing the system to handle 38% more requests per second while maintaining perfect reliability.
+Average latency was reduced by 94%, and p(95) latency was reduced by 90%, allowing the system to handle 52% more requests per second while maintaining perfect reliability.
 
 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
