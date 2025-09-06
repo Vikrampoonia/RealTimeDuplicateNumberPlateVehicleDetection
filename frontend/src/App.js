@@ -3,135 +3,235 @@ import { io } from "socket.io-client";
 import axios from "axios";
 import './App.css';
 
-// --- OPTIMIZATION: Load URLs from environment variables ---
-// This makes the app configurable for different environments (dev vs. production)
-const API_GATEWAY_URL = process.env.REACT_APP_API_GATEWAY_URL;
-const SOCKET_SERVICE_URL = process.env.REACT_APP_SOCKET_SERVICE_URL;
+// --- Configuration ---
+const API_GATEWAY_URL = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:4000";
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || "http://localhost:4002";
+const CLIENT_LOCATION = "Mumbai";
 
-const SuspiciousVehicles = () => {
+// --- Main Component ---
+const SuspiciousVehiclesDashboard = () => {
+    // --- State Management ---
     const [vehicles, setVehicles] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [pagination, setPagination] = useState({ currentPage: 1, totalPages: 1 });
+    const [filters, setFilters] = useState({ sort: 'date_desc', status: '' });
+
+    // --- NEW STATE for History Modal ---
+    const [historyModal, setHistoryModal] = useState({
+        isOpen: false,
+        isLoading: false,
+        data: [],
+        error: null,
+        plateNumber: null
+    });
     
-    // --- OPTIMIZATION (PAGINATION): State to manage pagination ---
-    const [page, setPage] = useState(1);
-    const [hasMore, setHasMore] = useState(true); // To know if there's more data to load
-
-    // This is a hardcoded value for the demo. In a real app, this would
-    // come from user authentication or GPS location.
-    const clientLocation = "Mumbai";
-
-    // --- OPTIMIZATION (PAGINATION): Function to fetch a page of data ---
-    // useCallback ensures this function isn't recreated on every render
-    const fetchVehicles = useCallback(async (pageNum) => {
+    // --- API & Data Fetching ---
+    const fetchVehicles = useCallback(async (page = 1) => {
         setLoading(true);
+        setError(null);
         try {
-            // Connect to our new, paginated API endpoint via the API Gateway
-            const response = await axios.get(`${API_GATEWAY_URL}/api/vehicles?page=${pageNum}&limit=10`);
-            const { data, pagination } = response.data;
-            
-            console.log("Response.data:", response.data);
-
-            // If it's the first page, replace the data. Otherwise, append it.
-            setVehicles(prev => pageNum === 1 ? data : [...prev, ...data]);
-            
-            // Update if there are more pages to load
-            setHasMore(pagination.currentPage < pagination.totalPages);
-
+            const params = new URLSearchParams({ page, limit: 10, sort: filters.sort });
+            if (filters.status) { params.append('status', filters.status); }
+            const response = await axios.get(`${API_GATEWAY_URL}/api/vehicles?${params.toString()}`);
+            setVehicles(prev => page === 1 ? response.data.data : [...prev, ...response.data.data]);
+            setPagination({ currentPage: response.data.pagination.currentPage, totalPages: response.data.pagination.totalPages });
         } catch (err) {
-            console.error("❌ Error fetching vehicle data:", err);
+            console.error("Error fetching vehicles:", err);
+            setError("Failed to load vehicle data. Please try again later.");
         } finally {
             setLoading(false);
         }
+    }, [filters]);
+
+    // --- Side Effects ---
+    useEffect(() => { fetchVehicles(1); }, [fetchVehicles]);
+
+    useEffect(() => {
+        const socket = io(SOCKET_URL);
+        socket.on('connect', () => {
+            console.log("✅ Socket connected:", socket.id);
+            socket.emit("Add", { from: CLIENT_LOCATION });
+        });
+        socket.on("notification", (newAlert) => {
+            console.log("🚨 Real-time alert received:", newAlert);
+            setVehicles(prev => [newAlert.data, ...prev]);
+        });
+        return () => { socket.disconnect(); };
     }, []);
 
-    // Effect for initial data load and setting up WebSocket
-    useEffect(() => {
-        // Fetch the first page of data when the component mounts
-        fetchVehicles(1);
-
-        // --- OPTIMIZATION: Connect directly to the client-api-service for WebSockets ---
-        const socket = io(SOCKET_SERVICE_URL);
-
-        socket.on('connect', () => {
-            console.log(`✅ Socket connected with ID: ${socket.id}`);
-            // --- OPTIMIZATION: Use a more descriptive event to register the client's location room ---
-            socket.emit("register_location", clientLocation);
-        });
-
-        // Listen for our new, specific real-time alert event
-        socket.on("suspicious_vehicle_alert", (newAlertData) => {
-            console.log("🚨 Real-time alert received:", newAlertData);
-            // Add the new alert to the top of the list for immediate visibility
-            setVehicles(prev => [newAlertData, ...prev]);
-        });
-
-        // Cleanup function to disconnect the socket when the component unmounts
-        return () => {
-            console.log("🔌 Disconnecting socket...");
-            socket.disconnect();
-        };
-    }, [fetchVehicles]); // Dependency array includes the memoized fetch function
-
+    // --- Event Handlers ---
+    const handleFilterChange = (e) => {
+        const { name, value } = e.target;
+        setFilters(prev => ({ ...prev, [name]: value }));
+    };
+    
     const handleLoadMore = () => {
-        const nextPage = page + 1;
-        setPage(nextPage);
-        fetchVehicles(nextPage);
-    }
+        if (pagination.currentPage < pagination.totalPages) {
+            fetchVehicles(pagination.currentPage + 1);
+        }
+    };
 
+    const handleMarkAsRead = async (vehicleId) => {
+        try {
+            setVehicles(prev => prev.map(v => v._id === vehicleId ? { ...v, isRead: true } : v));
+            await axios.patch(`${API_GATEWAY_URL}/api/vehicles/${vehicleId}`);
+        } catch (err) {
+            console.error("Failed to mark as read:", err);
+            setVehicles(prev => prev.map(v => v._id === vehicleId ? { ...v, isRead: false } : v));
+            alert("Could not update the alert. Please try again.");
+        }
+    };
+
+    // --- NEW HANDLER for fetching vehicle history ---
+    const handleViewHistory = async (plateNumber) => {
+        setHistoryModal({ isOpen: true, isLoading: true, data: [], error: null, plateNumber });
+        try {
+            const response = await axios.get(`${API_GATEWAY_URL}/api/vehicles/history/${plateNumber}`);
+            setHistoryModal(prev => ({ ...prev, isLoading: false, data: response.data.data }));
+        } catch (err) {
+            console.error(`Error fetching history for ${plateNumber}:`, err);
+            setHistoryModal(prev => ({ ...prev, isLoading: false, error: "Could not load vehicle history." }));
+        }
+    };
+
+    const closeHistoryModal = () => {
+        setHistoryModal({ isOpen: false, isLoading: false, data: [], error: null, plateNumber: null });
+    };
+
+    // --- Rendering ---
     return (
-        <div className="pageSection">
-            <header>
-                <h1>Real-Time Suspicious Vehicle Alerts</h1>
-                <p>Location: {clientLocation}</p>
-            </header>
-
-            <div className="vehicle-list">
-                {vehicles.length === 0 && !loading ? (
-                    <div className="empty-state">No suspicious vehicles detected yet.</div>
-                ) : (
-                    vehicles.map((vehicle, index) => (
-                        <div className="vehicleSection" key={vehicle._id || index}>
-                            <div className="VehicleNumber">
-                                <div>Plate: <strong>{vehicle.license_plate}</strong></div>
-                                <div className={`status ${vehicle.status}`}>{vehicle.status.replace('_', ' ').toUpperCase()}</div>
+        <>
+            <div className="dashboard-container">
+                <header className="dashboard-header">
+                    <h1>Suspicious Vehicle Alerts</h1>
+                    <div className="filter-controls">
+                        <div className="control-group">
+                            <label htmlFor="sort">Sort By:</label>
+                            <select id="sort" name="sort" value={filters.sort} onChange={handleFilterChange}>
+                                <option value="date_desc">Newest First</option>
+                                <option value="date_asc">Oldest First</option>
+                            </select>
+                        </div>
+                        <div className="control-group">
+                            <label htmlFor="status">Filter by Status:</label>
+                            <select id="status" name="status" value={filters.status} onChange={handleFilterChange}>
+                                <option value="">All</option>
+                                <option value="suspicious">Suspicious</option>
+                                <option value="confirmed_fraud">Confirmed Fraud</option>
+                            </select>
+                        </div>
+                    </div>
+                </header>
+                
+                <main className="alerts-list">
+                    {error && <div className="error-message">{error}</div>}
+                    {vehicles.length === 0 && !loading && <div className="empty-state">No suspicious vehicles found.</div>}
+                    
+                    {vehicles.map((vehicle) => (
+                        <div className={`alert-card ${!vehicle.isRead ? 'is-unread' : ''}`} key={vehicle._id}>
+                            <div className="card-header">
+                                <span className="plate-number">{vehicle.license_plate}</span>
+                                <span className={`status-badge status-${vehicle.status}`}>{vehicle.status.replace('_', ' ')}</span>
                             </div>
-                            <div className="similarity-score">
-                                Similarity Score: <span>{(vehicle.similarity_score * 100).toFixed(2)}%</span>
+                            <div className="card-body">
+                                <SightingDetails sighting={vehicle.sighting1} title="Current Sighting" />
+                                <SightingDetails sighting={vehicle.sighting2} title="Previous Sighting" />
                             </div>
-                            <div className="vehicleInfoSection">
-                                <div className="vehicleInfo">
-                                    <h3>Sighting 1</h3>
-                                    <p><strong>Category:</strong> {vehicle.sighting1.vehicle_class}</p>
-                                    <p><strong>Location:</strong> {vehicle.sighting1.location}</p>
-                                    <p><strong>Time:</strong> {new Date(vehicle.sighting1.timestamp).toLocaleString()}</p>
-                                    {/* --- OPTIMIZATION: Use the direct imageUrl from S3 --- */}
-                                    <img src={vehicle.sighting1.imageUrl} className="image" alt="First sighting" />
-                                </div>
-                                <div className="vehicleInfo">
-                                    <h3>Sighting 2</h3>
-                                    <p><strong>Category:</strong> {vehicle.sighting2.vehicle_class}</p>
-                                    <p><strong>Location:</strong> {vehicle.sighting2.location}</p>
-                                    <p><strong>Time:</strong> {new Date(vehicle.sighting2.timestamp).toLocaleString()}</p>
-                                    <img src={vehicle.sighting2.imageUrl} className="image" alt="Second sighting" />
+                            <div className="card-footer">
+                                <span>Similarity Score: {Math.round(vehicle.similarity_score * 100)}%</span>
+                                <div className="card-actions">
+                                    {/* NEW BUTTON */}
+                                    <button onClick={() => handleViewHistory(vehicle.license_plate)} className="history-btn">
+                                        View History
+                                    </button>
+                                    {!vehicle.isRead && (
+                                        <button onClick={() => handleMarkAsRead(vehicle._id)} className="mark-read-btn">
+                                            Mark as Read
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
-                    ))
-                )}
+                    ))}
+
+                    {loading && <div className="loading-spinner">Loading...</div>}
+                    
+                    {!loading && pagination.currentPage < pagination.totalPages && (
+                        <button onClick={handleLoadMore} className="load-more-btn">Load More</button>
+                    )}
+                </main>
             </div>
 
-            {loading && <div className="loading-indicator">Loading...</div>}
-
-            {/* --- OPTIMIZATION (PAGINATION): "Load More" button --- */}
-            {hasMore && !loading && (
-                <div className="load-more-container">
-                    <button onClick={handleLoadMore} className="load-more-btn">
-                        Load More
-                    </button>
-                </div>
+            {/* --- NEW: Conditionally render the history modal --- */}
+            {historyModal.isOpen && (
+                <HistoryModal
+                    plateNumber={historyModal.plateNumber}
+                    history={historyModal.data}
+                    isLoading={historyModal.isLoading}
+                    error={historyModal.error}
+                    onClose={closeHistoryModal}
+                />
             )}
+        </>
+    );
+};
+
+// --- Helper Components ---
+const SightingDetails = ({ sighting, title }) => (
+    <div className="sighting-details">
+        <h4>{title}</h4>
+        <img src={sighting.imageUrl} alt={`Vehicle sighting`} className="vehicle-image" />
+        <p><strong>Class:</strong> {sighting.vehicle_class}</p>
+        <p><strong>Location:</strong> {sighting.location}</p>
+        <p><strong>Time:</strong> {new Date(sighting.timestamp).toLocaleString()}</p>
+    </div>
+);
+
+// --- NEW History Modal Component ---
+const HistoryModal = ({ plateNumber, history, isLoading, error, onClose }) => {
+    // This allows closing the modal with the "Escape" key
+    useEffect(() => {
+        const handleEsc = (event) => {
+            if (event.keyCode === 27) onClose();
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [onClose]);
+
+    return (
+        <div className="modal-backdrop" onClick={onClose}>
+            <div className="modal-content" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                    <h2>Sighting History for {plateNumber}</h2>
+                    <button onClick={onClose} className="close-btn">&times;</button>
+                </div>
+                <div className="modal-body">
+                    {isLoading && <div className="loading-spinner">Loading history...</div>}
+                    {error && <div className="error-message">{error}</div>}
+                    {!isLoading && !error && history.length === 0 && (
+                        <div className="empty-state">No history found.</div>
+                    )}
+                    {!isLoading && !error && history.length > 0 && (
+                        <ul className="history-timeline">
+                            {history.map((sighting) => (
+                                <li key={sighting._id} className="timeline-item">
+                                    <div className="timeline-marker"></div>
+                                    <div className="timeline-content">
+                                        <p><strong>Location:</strong> {sighting.location}</p>
+                                        <p><strong>Time:</strong> {new Date(sighting.timestamp).toLocaleString()}</p>
+                                        <p><strong>Class:</strong> {sighting.vehicle_class}</p>
+                                        <img src={sighting.imageUrl} alt="Vehicle" className="timeline-image" />
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
 
-export default SuspiciousVehicles;
+export default SuspiciousVehiclesDashboard;
+

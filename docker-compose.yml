@@ -74,3 +74,6 @@ volumes:
   minio_data:
   redis_data:
 
+# This is the final, complete docker-compose file.
+# It builds and runs ALL infrastructure AND application services with one command.
+
