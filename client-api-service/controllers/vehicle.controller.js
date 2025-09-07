@@ -10,9 +10,17 @@ export const getSuspiciousVehicles = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    const { status, isRead, search, sort } = req.query;
+    const { status, isRead, search, sort, location } = req.query;
 
     const filter = {};
+
+    if (location) {
+        // Match either sighting1.location or sighting2.location
+        filter.$or = [
+            { "sighting1.location": location },
+            { "sighting2.location": location }
+        ];
+    }
 
     if (status) filter.status = status;
     if (isRead !== undefined && isRead !== "") filter.isRead = isRead === "true";

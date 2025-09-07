@@ -6,7 +6,7 @@ import axios from "axios";
 // --- Configuration ---
 const API_GATEWAY_URL = process.env.REACT_APP_API_GATEWAY_URL || "http://localhost:4000";
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || "http://localhost:4002";
-const CLIENT_LOCATION = "Mumbai";
+//const CLIENT_LOCATION = "Mumbai";
 
 const Dashboard = () => {
     const [vehicles, setVehicles] = useState([]);
@@ -17,6 +17,7 @@ const Dashboard = () => {
     const [filters, setFilters] = useState({ sort: "date_desc", status: "", isRead: "" });
     const [searchTerm, setSearchTerm] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
+    const [CLIENT_LOCATION, setClientLocation] = useState("Mumbai");
 
     // --- Manage URL Search Params ---
     const [searchParams, setSearchParams] = useSearchParams();
@@ -39,7 +40,7 @@ const Dashboard = () => {
         if (filters.sort) params.sort = filters.sort;
         if (debouncedSearch) params.search = debouncedSearch;
         setSearchParams(params);
-    }, [filters, debouncedSearch]);
+    }, [filters, debouncedSearch,CLIENT_LOCATION]);
 
     // Debounce search input (wait 500ms before API call)
     useEffect(() => {
@@ -58,7 +59,7 @@ const Dashboard = () => {
             if (filters.status) params.append("status", filters.status);
             if (filters.isRead) params.append("isRead", filters.isRead);
             if (debouncedSearch) params.append("search", debouncedSearch);
-
+            params.append("location", CLIENT_LOCATION);
             const response = await axios.get(`${API_GATEWAY_URL}/api/vehicles?${params.toString()}`);
             setVehicles(page === 1 ? response.data.data : vehicles.concat(response.data.data));
             setPagination(response.data.pagination);
@@ -67,12 +68,12 @@ const Dashboard = () => {
         } finally {
             setLoading(false);
         }
-    }, [filters, debouncedSearch]);
+    }, [filters, debouncedSearch,CLIENT_LOCATION]);
 
     // Re-fetch whenever filters or search changes
     useEffect(() => {
         fetchVehicles(1);
-    }, [filters, debouncedSearch]);
+    }, [filters, debouncedSearch,CLIENT_LOCATION]);
 
     // WebSocket for real-time alerts
     useEffect(() => {
@@ -101,10 +102,23 @@ const Dashboard = () => {
 
     return (
         <div className="p-4 md:p-8 max-w-7xl mx-auto">
-            <header className="mb-8">
-                <h1 className="text-4xl font-bold text-gray-800 tracking-tight">Suspicious Vehicle Dashboard</h1>
-                <p className="text-gray-500 mt-1">Real-time alerts from active monitoring stations.</p>
-            </header>
+            <div    className="flex justify-between items-center mb-8">
+                <header >
+                    <h1 className="text-4xl font-bold text-gray-800 tracking-tight">Suspicious Vehicle Dashboard</h1>
+                    <p className="text-gray-500 mt-1">Real-time alerts from active monitoring stations.</p>
+                </header>
+                <div>
+                    <label className="mr-2 font-semibold text-black-700">Your Location:</label>
+                    <select
+                        value={CLIENT_LOCATION}
+                        onChange={(e) => setClientLocation(e.target.value)}
+                    >
+                        <option value="Mumbai">Mumbai</option>
+                        <option value="New Delhi">Delhi</option>
+                      
+                    </select>
+                </div>
+            </div>
 
             {/* Filters + Search */}
             <div className="mb-6 p-4 bg-white rounded-lg shadow-sm border">
