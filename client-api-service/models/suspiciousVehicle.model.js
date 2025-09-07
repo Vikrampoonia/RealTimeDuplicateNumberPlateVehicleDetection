@@ -1,7 +1,6 @@
 import mongoose from 'mongoose';
 
 // --- Sub-schema for consistent sighting data ---
-// This is a cleaner way to group related information for each sighting.
 const sightingSchema = new mongoose.Schema({
     vehicle_class: { type: String, required: true },
     imageUrl: { type: String, required: true },

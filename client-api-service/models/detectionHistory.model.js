@@ -6,7 +6,7 @@ const detectionHistorySchema = new mongoose.Schema({
     imageUrl: { type: String, required: true },
     location: { type: String, required: true },
     timestamp: { type: Date, required: true, default: Date.now },
-});
+},{ collection: 'detection_history' });
 
 const DetectionHistory = mongoose.model('DetectionHistory', detectionHistorySchema);
 

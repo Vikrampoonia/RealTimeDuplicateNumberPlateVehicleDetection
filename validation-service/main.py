@@ -60,11 +60,11 @@ class ValidationProcessor:
             cached_sighting_json = self.redis.get(cache_key)
             previous_sighting = None
             if cached_sighting_json:
-                print(f"CACHE HIT for plate: {license_plate}")
+                #print(f"CACHE HIT for plate: {license_plate}")
                 previous_sighting = json.loads(cached_sighting_json)
                 previous_sighting['time_stamp'] = datetime.fromisoformat(previous_sighting['time_stamp'])
             else:
-                print(f"CACHE MISS for plate: {license_plate}. Fetching from DB.")
+                #print(f"CACHE MISS for plate: {license_plate}. Fetching from DB.")
                 previous_sighting = self.vehicle_collection.find_one({"license_plate": license_plate})
             self.handle_sighting(data, previous_sighting)
             current_sighting_for_cache = { "license_plate": data["license_plate"], "vehicle_class": data["vehicle_class"], "imageUrl": data["imageUrl"], "time_stamp": datetime.now().isoformat() }
@@ -76,26 +76,30 @@ class ValidationProcessor:
         license_plate = current_sighting["license_plate"]
         if previous_sighting is None: self.save_current_sighting(current_sighting)
         else:
-            print(f"Validating against previous sighting for plate: {license_plate}")
+            #print(f"Validating against previous sighting for plate: {license_plate}")
             try:
                 image_current=self.download_image_from_s3(current_sighting["imageUrl"]);image_old=self.download_image_from_s3(previous_sighting["imageUrl"])
                 if image_current is None or image_old is None: self.save_current_sighting(current_sighting); return
                 similarity=self.compare_images(image_current,image_old);lat1,lon1,name1=random.choice(self.locations);lat2,lon2,name2=random.choice(self.locations);shortest_distance=self.find_shortest_distance(lat1,lon1,lat2,lon2)
                 status=self.validate_vehicle(shortest_distance,current_sighting["vehicle_class"],similarity,previous_sighting["vehicle_class"],previous_sighting["time_stamp"])
-                print(f"  - Validation result for {license_plate}: {status.upper()}")
+                #print(f"  - Validation result for {license_plate}: {status.upper()}")
                 if status!="correct": self.publish_suspicious_alert(current_sighting,previous_sighting,status,similarity,name1,name2)
                 else: self.save_current_sighting(current_sighting)
             except Exception as e: print(f"❌ Error during validation for plate {license_plate}: {e}"); self.save_current_sighting(current_sighting)
+
     def download_image_from_s3(self,image_url):
         try:
             object_key=image_url.split('/')[-1];response=self.s3_client.get_object(Bucket=self.s3_bucket,Key=object_key);image_data=response['Body'].read();np_arr=np.frombuffer(image_data,np.uint8);return cv2.imdecode(np_arr,cv2.IMREAD_COLOR)
         except Exception as e: print(f"❌ S3 download error for {image_url}: {e}"); return None
+
     def compare_images(self,img1,img2):
         try:
             img1_resized=cv2.resize(img1,(256,256));img2_resized=cv2.resize(img2,(256,256));gray1=cv2.cvtColor(img1_resized,cv2.COLOR_BGR2GRAY);gray2=cv2.cvtColor(img2_resized,cv2.COLOR_BGR2GRAY);score,_=ssim(gray1,gray2,full=True);return score
         except Exception: return 0.0
+
     def find_shortest_distance(self,lat1,lon1,lat2,lon2):
         R=6371.0;phi1=math.radians(lat1);phi2=math.radians(lat2);delta_phi=math.radians(lat2-lat1);delta_lambda=math.radians(lon2-lon1);a=math.sin(delta_phi/2.0)**2+math.cos(phi1)*math.cos(phi2)*math.sin(delta_lambda/2.0)**2;c=2*math.atan2(math.sqrt(a),math.sqrt(1-a));return R*c
+    
     def validate_vehicle(self,shortest_distance,vehicle_class,similarity,vehicle_class_old,time_stamp_old):
         speed_new=self.vehicle_speed.get(vehicle_class.lower(),60);speed_old=self.vehicle_speed.get(vehicle_class_old.lower(),60);time_diff=(datetime.now()-time_stamp_old).total_seconds();actual_time_sec=(shortest_distance/speed_new)*3600 if speed_new>0 else 0;status="correct"
         if speed_new!=speed_old:status="suspicious"
@@ -103,11 +107,13 @@ class ValidationProcessor:
         elif similarity<0.6:status="suspicious"
         elif actual_time_sec > 0 and time_diff < actual_time_sec * 0.8:status="suspicious"
         return status
+    
     def save_current_sighting(self,sighting_data):
         try:
             self.vehicle_collection.update_one({"license_plate":sighting_data["license_plate"]},{"$set":{"vehicle_class":sighting_data["vehicle_class"],"imageUrl":sighting_data["imageUrl"],"time_stamp":datetime.now()}},upsert=True)
-            print(f"  - Saved current sighting for {sighting_data['license_plate']} to DB.")
+            #print(f"  - Saved current sighting for {sighting_data['license_plate']} to DB.")
         except Exception as e:print(f"❌ DB update error for {sighting_data['license_plate']}: {e}")
+
     def publish_suspicious_alert(self,current,previous,status,similarity,loc1,loc2):
         try:
             alert_data={"license_plate":current["license_plate"],"status":status,"similarity_score":similarity,"sighting1":{"vehicle_class":current["vehicle_class"],"imageUrl":current["imageUrl"],"timestamp":datetime.now().isoformat(),"location":loc1},"sighting2":{"vehicle_class":previous["vehicle_class"],"imageUrl":previous["imageUrl"],"timestamp":previous["time_stamp"].isoformat(),"location":loc2}}

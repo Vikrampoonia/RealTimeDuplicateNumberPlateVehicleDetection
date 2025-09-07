@@ -1,14 +1,13 @@
 import { Server } from 'socket.io';
 
 let io;
-// This map is a simple in-memory solution. For a real production system,
-// you would use Redis to store this mapping to allow for multiple server instances.
+// This map is a simple in-memory solution but in production we use redis
 const onlineUsers = new Map();
 
 export const setupSocket = (httpServer) => {
     io = new Server(httpServer, {
         cors: {
-            origin: '*', // In production, restrict this to your frontend's domain
+            origin: '*', 
             methods: ['GET', 'POST']
         }
     });

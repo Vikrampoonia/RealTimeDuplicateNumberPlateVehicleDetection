@@ -67,32 +67,42 @@ class VehicleProcessor:
 
     # --- NEW METHOD: UPLOAD IMAGE TO S3 ---
     def upload_image_to_s3(self, image_np, bucket_name):
-        """Encodes a NumPy image to JPEG and uploads it to an S3 bucket."""
-        if s3_client is None: return None
+        """Encodes a NumPy image to JPEG and uploads it to an S3 bucket with verification."""
+        if s3_client is None:
+            return None
         
-        # Generate a unique object name
         object_name = f"{uuid.uuid4()}.jpg"
 
         try:
-            # Encode image to JPEG format in memory
-            _, buffer = cv2.imencode('.jpg', image_np)
+            # Encode image
+            is_success, buffer = cv2.imencode('.jpg', image_np)
+            if not is_success:
+                raise ValueError("Could not encode image to JPG format")
+
             image_bytes = io.BytesIO(buffer)
 
-            # Upload the bytes to S3
+            # Upload to S3
             s3_client.upload_fileobj(
                 image_bytes,
                 bucket_name,
                 object_name,
                 ExtraArgs={'ContentType': 'image/jpeg'}
             )
-            
-            # Construct the public URL for the object
-            image_url = f"http://{os.getenv('MINIO_ENDPOINT')}/{bucket_name}/{object_name}"
-            print(f"🖼️  Image uploaded to S3: {image_url}")
+
+            # ✅ Verify upload by checking object exists
+            response = s3_client.list_objects_v2(Bucket=bucket_name, Prefix=object_name)
+            if "Contents" not in response:
+                raise Exception(f"Upload verification failed for {object_name}")
+
+            # Only return URL if upload was confirmed
+            image_url = f"{os.getenv('MINIO_ENDPOINT')}/{bucket_name}/{object_name}"
+            print(f"🖼️ Verified upload: {image_url}")
             return image_url
+
         except Exception as e:
             print(f"❌ S3 upload failed: {e}")
             return None
+
 
     # --- NEW METHOD: PUBLISH MESSAGE TO KAFKA ---
     def publish_to_kafka(self, topic, data):
@@ -121,45 +131,42 @@ class VehicleProcessor:
                 boxes = vehicle_results[0].boxes.xyxy.cpu()
                 track_ids = vehicle_results[0].boxes.id
                 class_indices = vehicle_results[0].boxes.cls.int().cpu().tolist()
+                confidences = vehicle_results[0].boxes.conf.cpu()
                 
                 track_ids = track_ids.int().cpu().tolist() if track_ids is not None else [-1] * len(boxes)
 
-                for box, track_id, class_idx in zip(boxes, track_ids, class_indices):
-                    vx1, vy1, vx2, vy2 = map(int, box)
-                    vehicle_class = self.vehicle_model.names[class_idx]
-                    
-                    for plate_result in plate_results:
-                        for plate_box in plate_result.boxes:
-                            x1, y1, x2, y2 = map(int, plate_box.xyxy[0])
-                            if vx1 <= x1 <= vx2 and vy1 <= y1 <= vy2:
-                                label = self.paddle_ocr(frame, x1, y1, x2, y2)
-                                
-                                if label and len(label) >= 4 and track_id not in detected_vehicles:
-                                    detected_vehicles[track_id] = label
+                for box, track_id, class_idx, confidence in zip(boxes, track_ids, class_indices, confidences):
+                    if confidence > 0.5:
+                        vx1, vy1, vx2, vy2 = map(int, box)
+                        vehicle_class = self.vehicle_model.names[class_idx]
+
+                        for plate_result in plate_results:
+                            for plate_box in plate_result.boxes:
+                                x1, y1, x2, y2 = map(int, plate_box.xyxy[0])
+                                if vx1 <= x1 <= vx2 and vy1 <= y1 <= vy2:
+                                    label = self.paddle_ocr(frame, x1, y1, x2, y2)
                                     
-                                    # --- REFACTORED LOGIC ---
-                                    # 1. Crop the vehicle image
-                                    cropped_vehicle = frame[vy1:vy2, vx1:vx2]
+                                    if label and len(label) >= 4 and track_id not in detected_vehicles:
+                                        detected_vehicles[track_id] = label
+                                        
+                                        # --- REFACTORED LOGIC ---
+                                        # 1. Crop the vehicle image
+                                        cropped_vehicle = frame[vy1:vy2, vx1:vx2]
 
-                                    # 2. Upload the image to S3 (MinIO)
-                                    image_url = self.upload_image_to_s3(
-                                        cropped_vehicle, 
-                                        os.getenv("MINIO_BUCKET_NAME")
-                                    )
+                                        # 2. Upload the image to S3 (MinIO)
+                                        image_url = self.upload_image_to_s3(cropped_vehicle, os.getenv("MINIO_BUCKET_NAME"))
 
-                                    if image_url:
-                                        # 3. Create a lightweight JSON payload
+                                        if not image_url:
+                                            print("⚠️ Skipping Kafka publish: upload failed.")
+                                            continue  # ❌ don’t push broken URLs
+
                                         vehicle_data = {
                                             "track_id": track_id,
                                             "license_plate": label,
                                             "vehicle_class": vehicle_class,
-                                            "imageUrl": image_url # No more base64!
+                                            "imageUrl": image_url
                                         }
-                                        # 4. Publish the event to Kafka
-                                        self.publish_to_kafka(
-                                            os.getenv("KAFKA_RAW_DETECTIONS_TOPIC"),
-                                            vehicle_data
-                                        )
+                                        self.publish_to_kafka(os.getenv("KAFKA_RAW_DETECTIONS_TOPIC"), vehicle_data)                        
         cap.release()
         cv2.destroyAllWindows()
 

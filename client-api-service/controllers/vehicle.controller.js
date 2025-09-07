@@ -10,26 +10,20 @@ export const getSuspiciousVehicles = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Create a unique key for this specific page of data.
-    const cacheKey = `vehicles:page:${page}:limit:${limit}`;
+    const { status, isRead, search, sort } = req.query;
+
+    const filter = {};
+
+    if (status) filter.status = status;
+    if (isRead !== undefined && isRead !== "") filter.isRead = isRead === "true";
+    if (search) filter.license_plate = { $regex: search, $options: "i" }; // case-insensitive search
+
+    const sortOption = sort === "date_asc" ? { vehicle_time1: 1 } : { vehicle_time1: -1 };
 
     try {
-        // --- Step 1: Check Redis Cache First ---
-        const cachedData = await redisClient.get(cacheKey);
-
-        if (cachedData) {
-            console.log(`CACHE HIT for key: ${cacheKey}`);
-            const result = JSON.parse(cachedData);
-            // If data is in the cache, return it instantly.
-            return res.status(200).json(result);
-        }
-
-        // --- Step 2: If Cache Miss, Fetch from MongoDB ---
-        console.log(`CACHE MISS for key: ${cacheKey}. Fetching from DB.`);
-        
-        const totalDocuments = await SuspiciousVehicle.countDocuments();
-        const vehicles = await SuspiciousVehicle.find()
-            .sort({ vehicle_time1: -1 }) // Sort by most recent
+        const totalDocuments = await SuspiciousVehicle.countDocuments(filter);
+        const vehicles = await SuspiciousVehicle.find(filter)
+            .sort(sortOption)
             .skip(skip)
             .limit(limit);
 
@@ -44,15 +38,7 @@ export const getSuspiciousVehicles = async (req, res) => {
             }
         };
 
-        // --- Step 3: Store the Fresh Data in the Cache ---
-        // Save the result to Redis with a 30-second expiration time.
-        await redisClient.set(cacheKey, JSON.stringify(result), {
-            EX: CACHE_EXPIRATION_SECONDS,
-        });
-
-        // Return the data fetched from the database.
         return res.status(200).json(result);
-
     } catch (error) {
         console.error("Error fetching suspicious vehicles:", error);
         res.status(500).json({ success: false, message: "Server Error" });
@@ -96,14 +82,17 @@ export const markVehicleAsRead = async (req, res) => {
                
 
 export const getVehicleHistory = async (req, res) => {
-    console.log("Fetching history for plate:", req.params.plateNumber);
+    console.log("Fetching history for plate:", req.params.plateNumber+" length:", req.params.plateNumber.length);
     const { plateNumber } = req.params;
+     console.log("🔍 API received plateNumber:", JSON.stringify(plateNumber));
 
     try {
 
         // The TTL index on the database (created by the validation-service) automatically handles the "10-day" limit.
-        const history = await DetectionHistory.find({ license_plate: plateNumber })
-            .sort({ timestamp: -1 }); // Sort by most recent sighting first
+        const history = await DetectionHistory.find({
+            license_plate: { $regex: `^${plateNumber.trim()}$`, $options: "i" }
+        }).sort({ timestamp: -1 });
+
 
             console.log("History fetched:", history);
 
@@ -119,3 +108,18 @@ export const getVehicleHistory = async (req, res) => {
     }
 };
 
+
+export const getVehicleAlertById = async (req, res) => {
+    const { id } = req.params;
+    console.log("Fetching vehicle alert with id:", id);
+    try {
+        const vehicle = await SuspiciousVehicle.findById(id);
+        if (!vehicle) {
+            return res.status(404).json({ success: false, message: "Vehicle alert not found." });
+        }
+        res.status(200).json({ success: true, data: vehicle });
+    } catch (error) {
+        console.error(`Error fetching vehicle alert with id ${id}:`, error);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+};
