@@ -28,73 +28,103 @@ Manual verification of vehicle authenticity is a tedious and error-prone process
   2. Implausible travel time between detection locations.
   3. Vehicle image similarity comparison to detect duplicates or fakes.
 
-### 🛠️ Technical Features
-- 🧱 **Microservices Architecture** with SOLID principles  
-- 🐳 Dockerized and **Deployed on Kubernetes**  
-- ⚡ **Kafka for Efficient Message Queuing**, reducing API latency  
-- 💾 Uses **MongoDB** for flexible and scalable storage  
-- 🔐 JWT Authentication & **WebSocket Integration** for real-time alerts to clients  
+
+
+## **Modules & Workflow**
+
+### 1️⃣ Processing Service
+**Purpose:** Extract vehicle data (image, number plate, category)  
+
+**Workflow:**  
+- Detects vehicle and category using **YOLO trained model**  
+- Detects the **number plate image** using a custom-trained model  
+- Extracts the number using **OCR** and uploads the image to **MinIO S3 bucket**  
+- Publishes an event to **Kafka** for the validation service  
 
 ---
 
-## 🖥️ Tech Stack
+### 2️⃣ Validation Service
+**Purpose:** Validate whether a vehicle is suspicious  
 
-| Layer | Technology |
-|------|------------|
-| Backend | Python, Flask, Node.js |
-| Frontend | React.js |
-| Database | MongoDB |
-| DevOps | Docker, Kubernetes |
-| Messaging | Kafka |
-| Authentication | JWT |
-| Real-time | WebSocket |
+**Workflow:**  
+- Consumes messages from **Processing Service**  
+- Retrieves previous data from the database  
+- Determines if the vehicle is suspicious based on category, similarity, and location/time constraints  
+- If suspicious, publishes an event to **Client API Service**  
+- Stores vehicle info and history in the database  
 
 ---
 
-## 🧠 Use Cases
+### 3️⃣ Client API Service
+**Purpose:** Handles client requests and delivers real-time updates  
 
-By slightly modifying the logic or retraining the models, this project can be used in:
-
-1. 🔁 **Duplicate Vehicle Detection**  
-2. 🏢 **Auto Logging Vehicles Entering/Leaving Buildings**  
-3. 🚫 **Restricting Vehicle Entry in Sensitive Zones**  
-4. 🧭 **Smart City Surveillance Systems**  
-5. 🛣️ **Automated Toll Gate Monitoring**
+**Workflow:**  
+- Consumes Kafka messages from the **Validation Service** and sends real-time updates to clients via **WebSocket**  
+- Handles HTTP requests from clients and serves vehicle data with history  
 
 ---
 
-## 📈 Future Enhancements
-
-> Planned improvements to make the system even more powerful and robust:
-
-- 🔧 **Chassis Number Detection using AI** (OCR on engine/chassis area)
-- 🌐 **Location-aware Alerts with Google Maps API Integration**
-- 🧠 **Train better models using larger Indian vehicle datasets**
-- 📷 **Multi-angle image capture (front and back) with track ID mapping**
-- 💾 **Dual storage (MongoDB + S3) for images and logs**
-- 📊 **Admin Dashboard to monitor flagged vehicles with historical data**
+### 4️⃣ API Gateway
+**Purpose:** Acts as a **proxy** to the client API service to prevent direct exposure  
 
 ---
 
-## 📸 Sample Output
+### 5️⃣ Frontend
+**Purpose:** Visualize vehicle alerts and history  
 
-Here’s what the system does in real-time:
-- Extracts number plate
-- Detects vehicle type (e.g., SUV, Bike)
-- Matches current vehicle image with the historical image
-- Flags vehicle if:
-  - It traveled an impossible distance in a short time
-  - It doesn’t match its expected type
-  - It looks similar to a previously flagged vehicle
+**Features:**  
+- Displays a **list of suspicious vehicles** with 10-day history  
+- Supports **pagination, filtering, and search functionality**  
+- Provides an intuitive, user-friendly interface using **ReactJS + TailwindCSS**  
 
 ---
 
-## 📦 Setup Instructions
+### 6️⃣ Docker-Compose
+**Purpose:** Local setup for **Kafka, Redis, and MinIO S3**  
+- Simplifies microservices orchestration for local development  
 
-```bash
-# Clone the repo
-git clone https://github.com/your-username/vehicle-verification-system.git
-cd vehicle-verification-system
+---
 
-# Start services
-docker-compose up --build
+### 7️⃣ Performance Test
+**Purpose:** Test the performance of all services (excluding frontend)  
+- Uses **k6** for load and stress testing  
+
+---
+
+### 8️⃣ Result File
+- `result.txt` contains performance test results for review  
+
+---
+
+## **Tech Stack**
+
+| Component | Technology |
+|-----------|------------|
+| Storage | MongoDB, Redis, MinIO S3 |
+| Message Broker | Kafka |
+| Backend | NodeJS (Express), Python (Flask) |
+| Frontend | ReactJS, TailwindCSS |
+| Containerization | Docker, Docker-Compose |
+| Testing | k6 |
+
+---
+
+## **Deployment & Access**
+
+- **Frontend:** [Deployed Frontend Link]  
+- **Backend:** Microservices deployed locally or on cloud servers  
+- **Performance Results:** Check `result.txt` for detailed metrics  
+
+---
+
+## **Project Highlights**
+- Fully **microservice-based architecture**  
+- Real-time detection and alerting using **Kafka and WebSockets**  
+- Image storage and retrieval via **MinIO S3**  
+- Robust and scalable backend with **Redis caching** and optimized MongoDB queries  
+- Interactive, filterable, searchable frontend UI  
+
+---
+
+## **Conclusion**
+This project demonstrates advanced **full-stack development**, **real-time microservices architecture**, and **AI-based image detection**
