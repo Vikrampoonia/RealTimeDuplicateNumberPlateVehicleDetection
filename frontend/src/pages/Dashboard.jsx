@@ -251,7 +251,7 @@ const Dashboard = () => {
 };
 
 // --- Helper dropdown component ---
-const FilterDropdown = ({ name, value, onChange, options }) => (
+export const FilterDropdown = ({ name, value, onChange, options }) => (
   <div className="relative">
     <select
       name={name}

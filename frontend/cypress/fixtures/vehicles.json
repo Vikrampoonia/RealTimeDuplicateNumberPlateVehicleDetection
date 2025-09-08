@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "60d5ecb4b392a2001f8d4f4a",
+      "license_plate": "MH12AB1234",
+      "status": "suspicious",
+      "isRead": false,
+      "similarity_score": 0.55,
+      "sighting1": { "timestamp": "2025-09-08T12:00:00.000Z", "location": "Mumbai", "vehicle_class": "Car", "imageUrl": "https://via.placeholder.com/150" },
+      "sighting2": { "timestamp": "2025-09-07T10:00:00.000Z", "location": "Pune", "vehicle_class": "Car", "imageUrl": "https://via.placeholder.com/150" }
+    },
+    {
+      "_id": "60d5ecb4b392a2001f8d4f4b",
+      "license_plate": "DL3CXY5678",
+      "status": "confirmed_fraud",
+      "isRead": true,
+      "similarity_score": 0.21,
+      "sighting1": { "timestamp": "2025-09-08T11:30:00.000Z", "location": "Delhi", "vehicle_class": "SUV", "imageUrl": "https://via.placeholder.com/150" },
+      "sighting2": { "timestamp": "2025-09-06T09:00:00.000Z", "location": "Gurgaon", "vehicle_class": "Truck", "imageUrl": "https://via.placeholder.com/150" }
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 5
+  }
+}
